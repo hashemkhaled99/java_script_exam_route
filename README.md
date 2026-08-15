@@ -1,78 +1,124 @@
-# NutriPlan — JavaScript Exam
+# NutriPlan
 
-A vanilla HTML/CSS/JS single-page app with 4 views: **Meals & Recipes** (home), **Meal Details**,
-**Product Scanner**, and **Food Log** — plus client-side routing so the URL bar updates per tab
-(`/`, `/productscanner`, `/foodlog`, `/meal/:id`) without full page reloads.
+Vanilla HTML/CSS/JavaScript exam app for meal browsing, nutrition tracking, product scanning, and a daily food log.
 
-## Run it
+**Features**
+- **Home** — ~25 meals, search, filter by cuisine (area) and meal type (category)
+- **Meal details** — ingredients, steps, YouTube video, USDA nutrition, **Log This Meal**
+- **Food Log** — daily calories / protein / carbs / fat vs goals (**localStorage only**, no API)
+- **Product Scanner** — search by name or barcode, then log to the Food Log
+- **Bonus routing** — URL updates per tab (`/`, `/productscanner`, `/foodlog`, `/meal/:id`)
 
-ES modules need a real server (won't work with `file://`). From the project folder use the
-SPA server so routes like `/foodlog` and `/meal/:id` still work after refresh:
+API base: `https://nutriplan-api.vercel.app/api`
+
+---
+
+## Run locally
+
+You need a local server (ES modules do not work via `file://`).
 
 ```bash
+cd nutriplan
 python serve.py
-# or: python serve.py -p 5500
 ```
 
-Then open http://127.0.0.1:5500
+Open **http://127.0.0.1:5500**
 
-(`python -m http.server` also works for `/`, but refreshing deep links will 404.)
+`serve.py` is an SPA server: refreshing `/foodlog` or `/meal/123` still loads the app.
 
-## USDA API key (required for nutrition facts on the meal details page)
+### USDA API key (meal nutrition)
 
-1. Get a free key: https://fdc.nal.usda.gov/api-key-signup.html
-2. Paste it into `js/api.js`:
-   ```js
-   const USDA_API_KEY = "YOUR_USDA_API_KEY";
-   ```
+Nutrition on meal details needs a free USDA key:
+
+1. Sign up: https://fdc.nal.usda.gov/api-key-signup.html  
+2. Either:
+   - paste it in the app on a meal page when prompted, **or**
+   - set it in `js/api.js`:
+     ```js
+     const USDA_API_KEY = "YOUR_USDA_API_KEY";
+     ```
+
+Do **not** commit a real key to Git.
+
+---
+
+## Deploy (static hosting)
+
+This is a static front-end. Deploy the project **root** (the folder that contains `index.html`, `css/`, `js/`).
+
+### Option A — Vercel (recommended)
+
+1. Push this repo to GitHub.
+2. Go to [vercel.com](https://vercel.com) → **Add New Project** → import the repo.
+3. Settings:
+   - **Framework Preset:** Other
+   - **Root Directory:** `.` (or `nutriplan` if the app lives in a subfolder)
+   - **Build Command:** leave empty
+   - **Output Directory:** `.` (or leave default for static)
+4. Deploy.
+
+`vercel.json` already rewrites client routes to `index.html` so `/foodlog` and `/meal/:id` work after refresh.
+
+CLI alternative:
+
+```bash
+npm i -g vercel
+vercel
+```
+
+### Option B — Netlify
+
+1. [app.netlify.com](https://app.netlify.com) → **Add new site** → import from Git  
+   **or** drag-and-drop the project folder onto Netlify Drop.
+2. Build settings:
+   - **Build command:** *(empty)*
+   - **Publish directory:** `.` (folder with `index.html`)
+3. `netlify.toml` / `_redirects` handle SPA fallback.
+
+### Option C — GitHub Pages
+
+1. Repo **Settings → Pages** → deploy from `main` / root (or `/docs`).
+2. History-API routes need a `404.html` copy of `index.html`, **or** use hash routing.  
+   Prefer **Vercel/Netlify** for this app’s `/foodlog`-style URLs.
+
+### After deploy
+
+1. Open the live URL.
+2. Add your USDA key when you open a meal (or set it in `js/api.js` before building/deploying a private fork).
+3. Smoke-test: Home → meal → Log → Food Log → Product Scanner → Log product.
+
+---
 
 ## Project structure
 
 ```
-index.html              shell: sidebar nav + #app mount point
-css/styles.css           all styling (matches the provided design screenshots)
+index.html          shell: sidebar + #app
+serve.py            local SPA static server
+vercel.json         Vercel SPA rewrites
+netlify.toml        Netlify SPA redirects
+css/styles.css
 js/
-  api.js                 every endpoint from the Swagger docs, one place, one function each
-  adapters.js             ⚠️ SEE BELOW — normalizes raw API JSON into clean objects
-  storage.js              Food Log + goals, 100% localStorage (per spec — no backend for this part)
-  router.js                History API router (pushState/popstate) — the URL bonus
-  utils.js                 small shared helpers (toast, formatting, category colors/icons)
-  main.js                  wires routes to views, mobile sidebar toggle
+  api.js            NutriPlan API helpers
+  adapters.js       normalize API JSON for the UI
+  storage.js        Food Log + goals (localStorage)
+  router.js         History API router (bonus)
+  utils.js
+  main.js
   views/
-    home.js                Meals & Recipes: search, category tiles, area chips, 25-meal grid
-    mealDetails.js          ingredients, instructions, YouTube video, nutrition, "Log This Meal"
-    productScanner.js       name/barcode search, Nutri-Score filter, category browse, "Log"
-    foodLog.js               today's totals vs goals (progress bars), logged items, remove
+    home.js
+    mealDetails.js
+    productScanner.js
+    foodLog.js
 ```
 
-## ⚠️ One thing to double-check: `js/adapters.js`
+---
 
-I built this against everything visible in your Swagger screenshots (base URL, every endpoint
-path, the `Search Meals` params, and the `Analyze recipe nutrition` request body). I could not
-render the full docs site to see every example **response** body, since it's a JS-rendered page
-my tools couldn't script through.
+## Exam checklist
 
-So `adapters.js` is the single file that turns raw API JSON into the shapes the rest of the app
-uses (`{id, name, category, area, thumbnail, instructions, video, ingredients}` for meals, etc.).
-Every field is looked up defensively with a few likely spellings (e.g. `calories` → tries
-`calories`, `kcal`, `energy`), so most things should just work — but if any field is blank in the
-UI:
-
-1. Run that request in Postman.
-2. Compare the real JSON key to the fallback list in the matching `adapt...()` function.
-3. Add/reorder the real key — nothing else in the app needs to change, because views never touch
-   raw API JSON directly.
-
-## Notes on a few design decisions
-
-- **Home page** calls `GET /meals/filter` with no params for the default "All Cuisines" 25-meal
-  grid (its docs description says it returns full meal details, which matches the card previews
-  reusing the `instructions` text). Search box calls `GET /meals/search?q=`.
-- **Nutrition on meal details** is computed live via `POST /nutrition/analyze`, sending
-  `"{measure} {name}"` strings per ingredient (matches the exact example in your Nutrition docs
-  screenshot), then rendered as calories/protein/carbs/fat.
-- **Food Log** goals default to `2000 kcal / 50g protein / 250g carbs / 65g fat` — the exact
-  numbers shown in your Food Log screenshot — stored in `localStorage` and editable by calling
-  `Goals.set({...})` from `js/storage.js` if you want a settings UI later.
-- **Routing bonus**: implemented with `history.pushState`/`popstate`, not `location.hash`, so URLs
-  look like `/foodlog` rather than `/#foodlog`.
+| Requirement | Status |
+|-------------|--------|
+| Home: ~25 meals + category/area filters | ✅ |
+| Meal details: ingredients, steps, video, nutrition, Log | ✅ |
+| Food Log via localStorage | ✅ |
+| Product Scanner → Food Log | ✅ |
+| Bonus: URL changes per tab | ✅ |

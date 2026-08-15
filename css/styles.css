@@ -430,7 +430,17 @@ button { font-family: var(--font-body); }
   width: 34px; height: 34px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center;
   font-weight: 800; font-size: 13px; border: 1px solid var(--border); color: var(--text-muted); background: var(--surface); cursor: pointer;
 }
+.score-chip.all-chip {
+  width: auto;
+  min-width: 44px;
+  padding: 0 12px;
+  font-size: 12px;
+}
 .score-chip.active { color: #fff; border-color: transparent; }
+.score-chip.all-chip.active {
+  background: var(--brand);
+  color: #fff;
+}
 
 .product-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -471,6 +481,15 @@ button { font-family: var(--font-body); }
 .stat-protein .pct { color: var(--blue); } .stat-protein .progress-fill { background: var(--blue); }
 .stat-carbs .pct { color: var(--orange); } .stat-carbs .progress-fill { background: var(--orange); }
 .stat-fat .pct { color: var(--purple); } .stat-fat .progress-fill { background: var(--purple); }
+.summary-stat.is-over .pct {
+  color: #fff !important;
+  background: var(--red) !important;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.summary-stat.is-over .progress-fill { background: var(--red) !important; }
+.summary-stat .stat-bottom .warn { color: var(--red); }
 .stat-calories .stat-top .num { color: var(--brand-dark); }
 .summary-stat .stat-top .num.warn { color: var(--red); }
 

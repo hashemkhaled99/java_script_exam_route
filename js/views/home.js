@@ -18,35 +18,56 @@ export async function renderHome(container) {
   state = { ...state, loading: true, error: null };
   paint(container);
 
-  // Load recipes immediately (filter with no params 500s — random is the default grid).
-  // Categories/cuisine chips load in parallel and refresh when ready.
-  const metaPromise = (async () => {
-    try {
-      const catRaw = await MealsAPI.categories();
+  // Categories are a single fast call — load alongside meals.
+  const catsPromise = MealsAPI.categories()
+    .then((catRaw) => {
       state.categories = adaptStringList(catRaw, "categories");
-      state.areas = await areasFromMealSamples(state.categories);
-      if (state.area && !state.areas.includes(state.area)) state.area = "";
-    } catch (err) {
-      console.warn("Could not load categories/areas", err);
-    }
-  })();
+    })
+    .catch((err) => console.warn("Could not load categories", err));
 
   await loadMeals(container);
-  await metaPromise;
+
+  // Show cuisine chips immediately from the meals already on screen (no extra wait).
+  mergeAreasFromMeals(state.meals);
+  await catsPromise;
   paint(container);
+
+  // Expand the full cuisine list in the background (does not block first paint).
+  if (state.categories.length) {
+    enrichAreasInBackground(container).catch((err) =>
+      console.warn("Could not enrich cuisine list", err)
+    );
+  }
 }
 
-/** Unique area names that actually appear on meals (empty cuisines excluded). */
+function mergeAreasFromMeals(meals) {
+  const set = new Set(state.areas);
+  meals.forEach((m) => {
+    if (m.area) set.add(m.area);
+  });
+  state.areas = [...set].sort((a, b) => a.localeCompare(b));
+  if (state.area && !state.areas.includes(state.area)) state.area = "";
+}
+
+/** Fill remaining cuisines without blocking the first paint. */
+async function enrichAreasInBackground(container) {
+  const before = state.areas.length;
+  const extra = await areasFromMealSamples(state.categories);
+  const set = new Set([...state.areas, ...extra]);
+  state.areas = [...set].sort((a, b) => a.localeCompare(b));
+  if (state.areas.length !== before) paint(container);
+}
+
+/** Unique area names from category samples (smaller pages, higher concurrency). */
 async function areasFromMealSamples(categories) {
   const areaSet = new Set();
-  // Limit concurrency so the API doesn't drop requests under burst load
-  const chunkSize = 4;
+  const chunkSize = 8;
   for (let i = 0; i < categories.length; i += chunkSize) {
     const chunk = categories.slice(i, i + chunkSize);
     const batches = await Promise.all(
       chunk.map(async (category) => {
         try {
-          const raw = await MealsAPI.filter({ category, limit: 25 });
+          const raw = await MealsAPI.filter({ category, limit: 12 });
           return adaptMealList(raw).meals;
         } catch {
           return [];
@@ -57,7 +78,7 @@ async function areasFromMealSamples(categories) {
       if (m.area) areaSet.add(m.area);
     });
   }
-  return [...areaSet].sort((a, b) => a.localeCompare(b));
+  return [...areaSet];
 }
 
 async function loadMeals(container) {

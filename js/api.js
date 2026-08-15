@@ -1,24 +1,17 @@
 // ============================================================
-// api.js — thin wrapper around the NutriPlan API
+// api.js — NutriPlan API client
+// Base + endpoints aligned with Swagger:
+//   https://nutriplan-api.vercel.app/api-docs/
 //
-// Base URL + every endpoint confirmed from the Swagger/Postman docs:
-//   Meals     (TheMealDB proxy)      : /meals/search /meals/filter /meals/{id}
-//                                      /meals/random /meals/categories /meals/areas
-//   Nutrition (USDA proxy)           : POST /nutrition/analyze   (needs x-api-key)
-//   Products  (OpenFoodFacts proxy)  : /products/search /products/barcode/{code}
-//                                      /products/categories /products/category/{cat}
-//
-// NOTE: exact response field names weren't fully visible in the docs
-// screenshots (the docs render as a JS app I couldn't scrape). The raw
-// response is normalized in adapters.js — that is the ONE file to check
-// against your own Postman run if a field ever shows up empty/undefined.
+// Meals:     GET /meals/search|filter|random|categories|areas|/{id}
+// Nutrition: POST /nutrition/analyze  (header: x-api-key)
+// Products:  GET /products/search|categories|category/{cat}|barcode/{code}
 // ============================================================
 
 const BASE_URL = "https://nutriplan-api.vercel.app/api";
 
-// USDA nutrition endpoint requires a personal key. Get one free at
-// https://fdc.nal.usda.gov/api-key-signup.html — paste below, or save via the
-// meal-details UI (stored in localStorage as nutriplan_usda_key).
+// USDA key for POST /nutrition/analyze (Swagger security: ApiKeyAuth / x-api-key)
+// Free key: https://fdc.nal.usda.gov/api-key-signup.html
 const USDA_API_KEY = "2YrKHH3cGwYkDtzuAq7SNdKiiBLetAImjp2cMh6q";
 const USDA_KEY_STORAGE = "nutriplan_usda_key";
 
@@ -67,35 +60,47 @@ async function request(path, { method = "GET", params, body, headers } = {}) {
 
   if (!res.ok) {
     let detail = "";
-    try { detail = JSON.stringify(await res.json()); } catch { /* ignore */ }
+    try {
+      detail = JSON.stringify(await res.json());
+    } catch {
+      /* ignore */
+    }
     throw new Error(`API ${res.status} on ${path} ${detail}`);
   }
-  // Some endpoints could legitimately return 204 / empty body
+
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
 
-// ---------------- Meals ----------------
+// ---------------- Meals (Swagger: Meals tag) ----------------
 export const MealsAPI = {
-  search: (q, { page = 1, limit = 25 } = {}) =>
-    request("/meals/search", { params: { q, page, limit } }),
+  /** GET /meals/search?q= */
+  search: (q, { limit = 25 } = {}) => request("/meals/search", { params: { q, limit } }),
 
-  filter: ({ category, area, page = 1, limit = 25 } = {}) =>
-    request("/meals/filter", { params: { category, area, page, limit } }),
+  /** GET /meals/filter?category=&area=&ingredient=&limit= */
+  filter: ({ category, area, ingredient, limit = 25 } = {}) =>
+    request("/meals/filter", { params: { category, area, ingredient, limit } }),
 
+  /** GET /meals/{id} → { result: Meal } */
   getById: (id) => request(`/meals/${id}`),
 
-  // OpenAPI: `count` (default 1). Filter with no category/area returns 500 —
-  // use random({ count: 25 }) for the unfiltered home grid.
+  /** GET /meals/random?count=  (used for home "All Cuisines" — bare filter returns 500) */
   random: ({ count = 1 } = {}) => request("/meals/random", { params: { count } }),
 
+  /** GET /meals/categories */
   categories: () => request("/meals/categories"),
 
+  /** GET /meals/areas */
   areas: () => request("/meals/areas"),
 };
 
-// ---------------- Nutrition ----------------
+// ---------------- Nutrition (Swagger: Nutrition tag) ----------------
 export const NutritionAPI = {
+  /**
+   * POST /nutrition/analyze
+   * Body: { recipeName?, ingredients: string[] }  (AnalyzeRequest)
+   * Header: x-api-key
+   */
   analyze: (recipeName, ingredients) =>
     request("/nutrition/analyze", {
       method: "POST",
@@ -104,15 +109,19 @@ export const NutritionAPI = {
     }),
 };
 
-// ---------------- Products ----------------
+// ---------------- Products (Swagger: Products tag) ----------------
 export const ProductsAPI = {
-  search: (q, { page = 1, limit = 20 } = {}) =>
-    request("/products/search", { params: { q, page, limit } }),
+  /** GET /products/search?q= */
+  search: (q, { limit = 20 } = {}) => request("/products/search", { params: { q, limit } }),
 
+  /** GET /products/barcode/{code} → { result: Product } */
   byBarcode: (code) => request(`/products/barcode/${encodeURIComponent(code)}`),
 
-  categories: () => request("/products/categories"),
+  /** GET /products/categories?page=&limit= */
+  categories: ({ page = 1, limit = 50 } = {}) =>
+    request("/products/categories", { params: { page, limit } }),
 
+  /** GET /products/category/{category}?page=&limit= */
   byCategory: (category, { page = 1, limit = 20 } = {}) =>
     request(`/products/category/${encodeURIComponent(category)}`, { params: { page, limit } }),
 };

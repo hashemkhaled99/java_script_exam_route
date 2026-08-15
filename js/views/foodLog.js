@@ -55,16 +55,17 @@ function paint(container) {
 }
 
 function statBlock(label, value, goal, unit, extraClass) {
-  const pct = goal ? Math.min(100, round((value / goal) * 100)) : 0;
+  const rawPct = goal ? round((value / goal) * 100) : 0;
   const over = value > goal;
+  const barPct = Math.min(100, rawPct);
   return `
-    <div class="summary-stat ${extraClass}">
+    <div class="summary-stat ${extraClass}${over ? " is-over" : ""}">
       <div class="stat-top">
         <span>${label}</span>
-        <span class="pct">${pct}%</span>
+        <span class="pct">${fmt(rawPct)}%</span>
       </div>
       <div class="progress-track">
-        <div class="progress-fill" style="width:${pct}%;${over ? "background:var(--red);" : ""}"></div>
+        <div class="progress-fill" style="width:${barPct}%"></div>
       </div>
       <div class="stat-bottom">
         <span class="${over ? "warn" : ""}">${fmt(value)} ${unit}</span>

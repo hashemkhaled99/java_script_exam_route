@@ -10,6 +10,17 @@ let state = {
   loading: false,
   searched: false,
   error: null,
+  nameQuery: "",
+  barcodeQuery: "",
+};
+
+/** Categories that usually include Nutri-Score A / B products */
+const SCORE_BROWSE = {
+  A: "fruits",
+  B: "yogurts",
+  C: "snacks",
+  D: "snacks",
+  E: "sodas",
 };
 
 export async function renderProductScanner(container) {
@@ -37,12 +48,12 @@ function paint(container) {
       <p>Search for packaged food products to view nutrition information</p>
 
       <div class="scanner-input-row">
-        <input id="productNameInput" type="text" placeholder="Search by product name (e.g., Cheerios, Nutella, Coca-Cola…)" />
+        <input id="productNameInput" type="text" placeholder="Search by product name (e.g., Cheerios, Nutella, Coca-Cola…)" value="${escapeHtml(state.nameQuery)}" />
         <button id="searchProductBtn" class="btn-brand"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
       </div>
       <div class="scanner-or">or</div>
       <div class="scanner-input-row">
-        <input id="barcodeInput" type="text" placeholder="Enter barcode number (e.g., 7613034626844)" inputmode="numeric" />
+        <input id="barcodeInput" type="text" placeholder="Enter barcode number (e.g., 7613034626844)" inputmode="numeric" value="${escapeHtml(state.barcodeQuery)}" />
         <button id="lookupBarcodeBtn" class="btn-orange"><i class="fa-solid fa-magnifying-glass"></i> Lookup</button>
       </div>
     </div>
@@ -55,8 +66,10 @@ function paint(container) {
             const val = s === "All" ? "" : s;
             const active = state.scoreFilter === val;
             const bg = val ? nutriScoreColor(val) : "";
-            return `<button type="button" class="score-chip ${active ? "active" : ""}" data-score="${val}"
-                      style="${active && bg ? `background:${bg}` : ""}">${s}</button>`;
+            const allClass = s === "All" ? " all-chip" : "";
+            const style = active && bg ? `background:${bg}` : "";
+            return `<button type="button" class="score-chip${allClass} ${active ? "active" : ""}" data-score="${val}"
+                      style="${style}">${s}</button>`;
           })
           .join("")}
       </div>
@@ -82,6 +95,11 @@ function paint(container) {
   bindEvents(container);
 }
 
+function filteredProducts() {
+  if (!state.scoreFilter) return state.products;
+  return state.products.filter((p) => p.nutriScore === state.scoreFilter);
+}
+
 function renderResults() {
   if (state.loading) {
     return `<div class="spinner"></div>`;
@@ -90,14 +108,15 @@ function renderResults() {
     return `<div class="state-box"><div class="state-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><h4>Something went wrong</h4><p>${escapeHtml(state.error)}</p></div>`;
   }
   if (!state.searched) {
-    return `<div class="state-box"><div class="state-icon"><i class="fa-solid fa-box-open"></i></div><h4>No products to display</h4><p>Search for a product or browse by category</p></div>`;
+    return `<div class="state-box"><div class="state-icon"><i class="fa-solid fa-box-open"></i></div><h4>No products to display</h4><p>Search for a product, browse by category, or tap a Nutri-Score</p></div>`;
   }
-  const filtered = state.scoreFilter
-    ? state.products.filter((p) => p.nutriScore === state.scoreFilter)
-    : state.products;
+  const filtered = filteredProducts();
 
   if (!filtered.length) {
-    return `<div class="state-box"><div class="state-icon"><i class="fa-solid fa-box-open"></i></div><h4>No products found</h4><p>Try another name, barcode, or Nutri-Score filter.</p></div>`;
+    const scoreHint = state.scoreFilter
+      ? `No Nutri-Score ${escapeHtml(state.scoreFilter)} products in these results. Try another search or category.`
+      : "Try another name, barcode, or Nutri-Score filter.";
+    return `<div class="state-box"><div class="state-icon"><i class="fa-solid fa-box-open"></i></div><h4>No products found</h4><p>${scoreHint}</p></div>`;
   }
   return `<div style="display:flex;flex-direction:column;gap:12px;">${filtered.map(productCard).join("")}</div>`;
 }
@@ -138,17 +157,41 @@ async function runSearch(container, fn) {
     console.error(err);
     state.error = "Couldn't fetch that product. Please check the name/barcode and try again.";
     state.products = [];
-  }   finally {
+  } finally {
     state.loading = false;
     qs("#productResults", container).innerHTML = renderResults();
   }
+}
+
+async function onScoreChip(container, score) {
+  state.scoreFilter = score;
+
+  // All — just clear filter and re-render (keep current results)
+  if (!score) {
+    paint(container);
+    return;
+  }
+
+  // Already have matching products in the current list
+  if (state.searched && filteredProducts().length) {
+    paint(container);
+    return;
+  }
+
+  // Load a category that typically has this Nutri-Score so A/B aren't empty
+  const category = SCORE_BROWSE[score] || "fruits";
+  paint(container);
+  await runSearch(container, () => ProductsAPI.byCategory(category, { limit: 40 }));
+  // Re-paint so chips stay in sync after async load
+  paint(container);
 }
 
 function bindEvents(container) {
   qs("#searchProductBtn", container).addEventListener("click", () => {
     const q = qs("#productNameInput", container).value.trim();
     if (!q) return showToast("Type a product name first", "error");
-    runSearch(container, () => ProductsAPI.search(q));
+    state.nameQuery = q;
+    runSearch(container, () => ProductsAPI.search(q, { limit: 40 }));
   });
   qs("#productNameInput", container).addEventListener("keydown", (e) => {
     if (e.key === "Enter") qs("#searchProductBtn", container).click();
@@ -157,6 +200,7 @@ function bindEvents(container) {
   qs("#lookupBarcodeBtn", container).addEventListener("click", () => {
     const code = qs("#barcodeInput", container).value.trim();
     if (!code) return showToast("Enter a barcode number first", "error");
+    state.barcodeQuery = code;
     runSearch(container, () => ProductsAPI.byBarcode(code));
   });
   qs("#barcodeInput", container).addEventListener("keydown", (e) => {
@@ -166,17 +210,15 @@ function bindEvents(container) {
   qs("#scoreChips", container)?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-score]");
     if (!btn) return;
-    state.scoreFilter = btn.getAttribute("data-score");
-    paint(container);
+    onScoreChip(container, btn.getAttribute("data-score") || "");
   });
 
   qs("#catChips", container)?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-cat]");
     if (!btn) return;
-    runSearch(container, () => ProductsAPI.byCategory(btn.getAttribute("data-cat")));
+    runSearch(container, () => ProductsAPI.byCategory(btn.getAttribute("data-cat"), { limit: 40 }));
   });
 
-  // onclick assignment (not addEventListener) so re-paints / searches never stack handlers
   const results = qs("#productResults", container);
   if (results) {
     results.onclick = (e) => {

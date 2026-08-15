@@ -39,6 +39,13 @@ export function hasUsdaApiKey() {
   return Boolean(key) && key !== "YOUR_USDA_API_KEY";
 }
 
+let lastRequestAt = 0;
+const MIN_GAP_MS = 150;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function request(path, { method = "GET", params, body, headers } = {}) {
   let url = `${BASE_URL}${path}`;
   if (params) {
@@ -49,27 +56,43 @@ async function request(path, { method = "GET", params, body, headers } = {}) {
     if (qs) url += `?${qs}`;
   }
 
-  const res = await fetch(url, {
-    method,
-    headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
-      ...headers,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Soft throttle + retry: upstream wraps OpenFoodFacts/MealDB 429 as HTTP 500
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const gap = MIN_GAP_MS - (Date.now() - lastRequestAt);
+    if (gap > 0) await sleep(gap);
+    lastRequestAt = Date.now();
 
-  if (!res.ok) {
+    const res = await fetch(url, {
+      method,
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...headers,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (res.ok) {
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+
     let detail = "";
     try {
       detail = JSON.stringify(await res.json());
     } catch {
       /* ignore */
     }
-    throw new Error(`API ${res.status} on ${path} ${detail}`);
-  }
 
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
+    const rateLimited = res.status === 429 || /"status code 429"|too many requests/i.test(detail);
+    lastError = new Error(`API ${res.status} on ${path} ${detail}`);
+    if (rateLimited && attempt < 2) {
+      await sleep(600 * (attempt + 1));
+      continue;
+    }
+    throw lastError;
+  }
+  throw lastError;
 }
 
 // ---------------- Meals (Swagger: Meals tag) ----------------

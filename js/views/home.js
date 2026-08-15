@@ -1,6 +1,6 @@
 import { MealsAPI } from "../api.js";
 import { adaptMealList, adaptStringList } from "../adapters.js";
-import { qs, debounce, escapeHtml, colorForCategory, iconForCategory, showToast } from "../utils.js";
+import { qs, debounce, escapeHtml, colorForCategory, iconForCategory } from "../utils.js";
 import { navigate } from "../router.js";
 
 let state = {
@@ -14,11 +14,14 @@ let state = {
   error: null,
 };
 
+/** Ignores stale meal responses when the user clicks cuisines quickly. */
+let loadSeq = 0;
+let enrichSeq = 0;
+
 export async function renderHome(container) {
   state = { ...state, loading: true, error: null };
   paint(container);
 
-  // Categories are a single fast call — load alongside meals.
   const catsPromise = MealsAPI.categories()
     .then((catRaw) => {
       state.categories = adaptStringList(catRaw, "categories");
@@ -27,17 +30,12 @@ export async function renderHome(container) {
 
   await loadMeals(container);
 
-  // Show cuisine chips immediately from the meals already on screen (no extra wait).
   mergeAreasFromMeals(state.meals);
   await catsPromise;
-  paint(container);
+  renderAreaChips(container);
 
-  // Expand the full cuisine list in the background (does not block first paint).
-  if (state.categories.length) {
-    enrichAreasInBackground(container).catch((err) =>
-      console.warn("Could not enrich cuisine list", err)
-    );
-  }
+  // One light extra random sample (NOT one request per category) — avoids API 429s
+  enrichAreasLightly(container).catch(() => {});
 }
 
 function mergeAreasFromMeals(meals) {
@@ -46,48 +44,31 @@ function mergeAreasFromMeals(meals) {
     if (m.area) set.add(m.area);
   });
   state.areas = [...set].sort((a, b) => a.localeCompare(b));
-  if (state.area && !state.areas.includes(state.area)) state.area = "";
 }
 
-/** Fill remaining cuisines without blocking the first paint. */
-async function enrichAreasInBackground(container) {
-  const before = state.areas.length;
-  const extra = await areasFromMealSamples(state.categories);
-  const set = new Set([...state.areas, ...extra]);
-  state.areas = [...set].sort((a, b) => a.localeCompare(b));
-  if (state.areas.length !== before) paint(container);
-}
-
-/** Unique area names from category samples (smaller pages, higher concurrency). */
-async function areasFromMealSamples(categories) {
-  const areaSet = new Set();
-  const chunkSize = 8;
-  for (let i = 0; i < categories.length; i += chunkSize) {
-    const chunk = categories.slice(i, i + chunkSize);
-    const batches = await Promise.all(
-      chunk.map(async (category) => {
-        try {
-          const raw = await MealsAPI.filter({ category, limit: 12 });
-          return adaptMealList(raw).meals;
-        } catch {
-          return [];
-        }
-      })
-    );
-    batches.flat().forEach((m) => {
-      if (m.area) areaSet.add(m.area);
-    });
+/** Grow cuisine chips with one extra random batch — no category flood. */
+async function enrichAreasLightly(container) {
+  const seq = ++enrichSeq;
+  try {
+    await new Promise((r) => setTimeout(r, 500));
+    if (seq !== enrichSeq) return;
+    const raw = await MealsAPI.random({ count: 25 });
+    if (seq !== enrichSeq) return;
+    const before = state.areas.length;
+    mergeAreasFromMeals(adaptMealList(raw).meals);
+    if (state.areas.length !== before) renderAreaChips(container);
+  } catch {
+    /* rate-limit or network — chips from current meals are enough */
   }
-  return [...areaSet];
 }
 
 async function loadMeals(container) {
+  const seq = ++loadSeq;
   state.loading = true;
+  state.error = null;
   paint(container);
+
   try {
-    // /meals/filter with no category/area returns 500 — use random for "All Cuisines".
-    // When BOTH are set, the API ignores area and only applies category — so fetch by
-    // area (smaller set) and narrow to the selected meal type on the client.
     let meals;
     if (state.query) {
       const raw = await MealsAPI.search(state.query, { limit: 25 });
@@ -108,16 +89,36 @@ async function loadMeals(container) {
       const raw = await MealsAPI.random({ count: 25 });
       meals = adaptMealList(raw).meals;
     }
+
+    // A newer click already started — drop this stale response
+    if (seq !== loadSeq) return;
+
     state.meals = meals;
     state.error = null;
+    mergeAreasFromMeals(meals);
   } catch (err) {
+    if (seq !== loadSeq) return;
     console.error(err);
     state.error = "Couldn't load recipes right now. Please try again.";
     state.meals = [];
   } finally {
+    if (seq !== loadSeq) return;
     state.loading = false;
     paint(container);
   }
+}
+
+function areaChipsHtml() {
+  return `
+    ${chip("", "All Cuisines", state.area === "")}
+    ${state.areas.map((a) => chip(a, a, state.area === a)).join("")}
+  `;
+}
+
+function renderAreaChips(container) {
+  const row = qs("#areaChips", container);
+  if (!row) return;
+  row.innerHTML = areaChipsHtml();
 }
 
 function paint(container) {
@@ -133,8 +134,7 @@ function paint(container) {
     </div>
 
     <div class="chip-row" id="areaChips">
-      ${chip("", "All Cuisines", state.area === "")}
-      ${state.areas.map((a) => chip(a, a, state.area === a)).join("")}
+      ${areaChipsHtml()}
     </div>
 
     <div class="section-head">
@@ -231,7 +231,6 @@ function bindEvents(container) {
     const tile = e.target.closest("[data-category]");
     if (!tile) return;
     const next = tile.getAttribute("data-category");
-    // Toggle off if the same type is clicked again; keep cuisine selection
     state.category = state.category === next ? "" : next;
     state.query = "";
     loadMeals(container);

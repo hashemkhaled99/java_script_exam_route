@@ -18,6 +18,13 @@ class SPAHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         rel = unquote(parsed.path).lstrip("/")
+
+        # Browsers often request /favicon.ico — serve our SVG icon instead
+        if rel in ("favicon.ico",):
+            self.path = "/favicon.svg"
+
+        parsed = urlparse(self.path)
+        rel = unquote(parsed.path).lstrip("/")
         candidate = (ROOT / rel).resolve() if rel else ROOT
 
         # Prevent path traversal outside project root

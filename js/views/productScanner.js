@@ -146,12 +146,18 @@ async function runSearch(container, fn) {
   qs("#productResults", container).innerHTML = renderResults();
   try {
     const raw = await fn();
+    let products;
     if (Array.isArray(raw) || raw?.products || raw?.data || raw?.results) {
-      state.products = adaptProductList(raw).products;
+      products = adaptProductList(raw).products;
+      // OpenFoodFacts often returns incomplete community entries with all-zero macros —
+      // hide those so Food Log isn't filled with useless 0 kcal items.
+      const withMacros = products.filter(hasMacroData);
+      products = withMacros.length ? withMacros : products;
     } else {
       const single = adaptProduct(raw);
-      state.products = single?.code ? [single] : [];
+      products = single?.code ? [single] : [];
     }
+    state.products = products;
     state.searched = true;
   } catch (err) {
     console.error(err);
@@ -161,6 +167,11 @@ async function runSearch(container, fn) {
     state.loading = false;
     qs("#productResults", container).innerHTML = renderResults();
   }
+}
+
+function hasMacroData(p) {
+  const n = p.nutrition || {};
+  return Number(n.calories) > 0 || Number(n.protein) > 0 || Number(n.carbs) > 0 || Number(n.fat) > 0;
 }
 
 async function onScoreChip(container, score) {

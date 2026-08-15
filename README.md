@@ -28,17 +28,9 @@ Open **http://127.0.0.1:5500**
 
 ### USDA API key (meal nutrition)
 
-Nutrition on meal details needs a free USDA key:
+A USDA key is already set in `js/api.js`, so meal nutrition works after you pull and run.
 
-1. Sign up: https://fdc.nal.usda.gov/api-key-signup.html  
-2. Either:
-   - paste it in the app on a meal page when prompted, **or**
-   - set it in `js/api.js`:
-     ```js
-     const USDA_API_KEY = "YOUR_USDA_API_KEY";
-     ```
-
-Do **not** commit a real key to Git.
+To use your own key later: https://fdc.nal.usda.gov/api-key-signup.html — paste it in `js/api.js` or on the meal details page.
 
 ---
 

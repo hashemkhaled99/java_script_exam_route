@@ -19,7 +19,7 @@ const BASE_URL = "https://nutriplan-api.vercel.app/api";
 // USDA nutrition endpoint requires a personal key. Get one free at
 // https://fdc.nal.usda.gov/api-key-signup.html — paste below, or save via the
 // meal-details UI (stored in localStorage as nutriplan_usda_key).
-const USDA_API_KEY = "YOUR_USDA_API_KEY";
+const USDA_API_KEY = "2YrKHH3cGwYkDtzuAq7SNdKiiBLetAImjp2cMh6q";
 const USDA_KEY_STORAGE = "nutriplan_usda_key";
 
 export function getUsdaApiKey() {
